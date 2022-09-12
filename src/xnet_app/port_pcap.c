@@ -4,10 +4,14 @@
 #include "pcap_device.h"
 
 static pcap_t* pcap;
-const char* ip_addr = "192.168.56.1";
+const char* ip_addr = "192.168.56.1"; // 须与虚拟网卡设置地址保持一致
 const char local_mac_addr[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
 
-// 打开驱动
+/**
+ * 打开驱动
+ * @param mac_addr
+ * @return
+ */
 xnet_err_t xnet_driver_open(uint8_t* mac_addr) {
     memcpy(mac_addr, local_mac_addr, sizeof(local_mac_addr));
     pcap = pcap_device_open(ip_addr, local_mac_addr, 1);
@@ -17,12 +21,20 @@ xnet_err_t xnet_driver_open(uint8_t* mac_addr) {
     return XNET_ERR_OK;
 }
 
-// 发送数据包
+/**
+ * 发送数据包
+ * @param packet
+ * @return
+ */
 xnet_err_t xnet_driver_send(xnet_packet_t* packet) {
     return pcap_device_send(pcap, packet->data, packet->size);
 }
 
-// 接收数据包
+/**
+ * 接收数据包
+ * @param packet
+ * @return
+ */
 xnet_err_t xnet_driver_read(xnet_packet_t** packet) {
     uint16_t size;
     xnet_packet_t* rcv_packet = xnet_alloc_for_read(XNET_CFG_PACKET_MAX_SIZE);
