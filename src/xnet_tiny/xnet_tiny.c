@@ -4,6 +4,7 @@
 #define swap_order16(v) (((v) & 0xFF) << 8 | ((v) >> 8) & 0xFF)
 static uint8_t eth_mac[XNET_MAC_ADDR_SIZE];
 static xnet_packet_t tx_packet, rx_packet;
+static xarp_entry_t xarp_entry;
 
 xnet_packet_t* xnet_alloc_for_send(uint16_t size) {
     tx_packet.data = tx_packet.payload + XNET_CFG_PACKET_MAX_SIZE - size;
@@ -102,8 +103,19 @@ static void eth_poll(void) {
  */
 void xnet_init(void) {
     eth_init();
+    xarp_init();
 }
 
+/**
+ * 拉取数据
+ */
 void xnet_poll(void) {
     eth_poll();
+}
+
+/**
+ * arp注册表初始化
+ */
+void xarp_init(void) {
+    xarp_entry.state = XARP_ENTRY_FREE;
 }

@@ -55,6 +55,28 @@ xnet_packet_t* xnet_alloc_for_read(uint16_t size);
 void xnet_init(void);
 void xnet_poll(void);
 
+/**
+ * ip地址
+ */
+typedef union _xip_addr_t {
+    uint8_t array[XNET_IPV4_ADDR_SIZE];
+    uint32_t addr;
+} xip_addr_t;
+
+#define XARP_ENTRY_FREE 0
+
+/**
+ * arp结构体
+ */
+typedef struct _xarp_entry_t {
+    xip_addr_t ip_addr;
+    uint8_t mac_addr[XNET_MAC_ADDR_SIZE];
+    uint8_t state;
+    uint16_t ttl;
+    uint8_t retry_cnt;
+} xarp_entry_t;
+
+void xarp_init(void);
 xnet_err_t xnet_driver_open(uint8_t* mac_addr);
 xnet_err_t xnet_driver_send(xnet_packet_t* packet);
 xnet_err_t xnet_driver_read(xnet_packet_t** packet);
