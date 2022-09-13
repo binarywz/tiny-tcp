@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#define XNET_CFG_PACKET_MAX_SIZE 1516 // 最大数据包字节数
+#define XNET_CFG_NETIF_IP       {192,168,56,2}
+
+#define XNET_CFG_PACKET_MAX_SIZE 1514 // 最大数据包字节数
 #define XNET_IPV4_ADDR_SIZE      4    // IP地址长度
 #define XNET_MAC_ADDR_SIZE       6    // MAC地址长度
 
@@ -21,6 +23,23 @@ typedef struct _xeth_head_t {
     uint8_t src[XNET_MAC_ADDR_SIZE]; // 源mac地址
     uint16_t type;                   // 协议类型
 } xeth_head_t;
+
+#define XARP_HW_ETH     0x1
+#define XARP_REQUEST    0x1
+#define XARP_REPLY      0x1
+
+/**
+ * ARP报文
+ */
+typedef struct _xarp_packet_t {
+    uint16_t hw_type, pt_type;
+    uint8_t hw_size, pt_size;
+    uint16_t opcode;
+    uint8_t sender_mac[XNET_MAC_ADDR_SIZE];
+    uint8_t sender_ip[XNET_IPV4_ADDR_SIZE];
+    uint8_t target_mac[XNET_MAC_ADDR_SIZE];
+    uint8_t target_ip[XNET_IPV4_ADDR_SIZE];
+} xarp_packet_t;
 
 #pragma pack(0)
 
@@ -77,6 +96,8 @@ typedef struct _xarp_entry_t {
 } xarp_entry_t;
 
 void xarp_init(void);
+int xarp_make_request(const xip_addr_t* ip_addr);
+
 xnet_err_t xnet_driver_open(uint8_t* mac_addr);
 xnet_err_t xnet_driver_send(xnet_packet_t* packet);
 xnet_err_t xnet_driver_read(xnet_packet_t** packet);
