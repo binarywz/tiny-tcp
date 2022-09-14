@@ -26,7 +26,7 @@ typedef struct _xeth_head_t {
 
 #define XARP_HW_ETH     0x1
 #define XARP_REQUEST    0x1
-#define XARP_REPLY      0x1
+#define XARP_REPLY      0x2
 
 /**
  * ARP报文
@@ -83,6 +83,7 @@ typedef union _xip_addr_t {
 } xip_addr_t;
 
 #define XARP_ENTRY_FREE 0
+#define XARP_ENTRY_OK 0
 
 /**
  * arp结构体
@@ -97,6 +98,7 @@ typedef struct _xarp_entry_t {
 
 void xarp_init(void);
 int xarp_make_request(const xip_addr_t* ip_addr);
+void xarp_in(xnet_packet_t* packet);
 
 xnet_err_t xnet_driver_open(uint8_t* mac_addr);
 xnet_err_t xnet_driver_send(xnet_packet_t* packet);
