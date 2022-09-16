@@ -1,4 +1,5 @@
-﻿#include <string.h>
+﻿#include <time.h>
+#include <string.h>
 #include <stdlib.h>
 #include "xnet_tiny.h"
 #include "pcap_device.h"
@@ -45,4 +46,12 @@ xnet_err_t xnet_driver_read(xnet_packet_t** packet) {
         return XNET_ERR_OK;
     }
     return XNET_ERR_IO;
+}
+
+/**
+ * 获取系统当前时间，单位s
+ * @return
+ */
+const xnet_time_t xsys_cur_time(void) {
+    return clock() / CLOCKS_PER_SEC;
 }

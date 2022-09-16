@@ -9,6 +9,7 @@ static const uint8_t eth_broadcast[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static uint8_t netif_mac[XNET_MAC_ADDR_SIZE];
 static xnet_packet_t tx_packet, rx_packet;
 static xarp_entry_t xarp_entry;
+static xnet_time_t xarp_timer;
 
 xnet_packet_t* xnet_alloc_for_send(uint16_t size) {
     tx_packet.data = tx_packet.payload + XNET_CFG_PACKET_MAX_SIZE - size;
@@ -119,6 +120,19 @@ void xnet_init(void) {
  */
 void xnet_poll(void) {
     eth_poll();
+    xarp_poll();
+}
+
+int xarp_check_state(xnet_time_t* time, uint32_t timeout) {
+    xnet_time_t now = xsys_cur_time();
+    if (timeout == 0) {
+        *time = now;
+        return 0;
+    } else if (now - *time >= timeout) {
+        *time = now;
+        return 1;
+    }
+    return 0;
 }
 
 /**
@@ -126,6 +140,7 @@ void xnet_poll(void) {
  */
 void xarp_init(void) {
     xarp_entry.state = XARP_ENTRY_FREE;
+    xarp_check_state(&xarp_timer, 0);
 }
 
 /**
@@ -179,6 +194,8 @@ static void update_arp_entry(uint8_t* src_ip, uint8_t* src_mac) {
     memcpy(xarp_entry.ip_addr.array, src_ip, XNET_IPV4_ADDR_SIZE);
     memcpy(xarp_entry.mac_addr, src_mac, XNET_MAC_ADDR_SIZE);
     xarp_entry.state = XARP_ENTRY_OK;
+    xarp_entry.ttl = XARP_CFG_ENTRY_OK_TTL;
+    xarp_entry.retry_cnt = XARP_CFG_MAX_RETRIES;
 }
 
 void xarp_in(xnet_packet_t *packet) {
@@ -203,6 +220,35 @@ void xarp_in(xnet_packet_t *packet) {
             update_arp_entry(xarp_packet->sender_ip, xarp_packet->sender_mac);
             break;
         case XARP_REPLY:
+            update_arp_entry(xarp_packet->sender_ip, xarp_packet->sender_mac);
             break;
+    }
+}
+
+/**
+ * 查询ARP注册表
+ */
+void xarp_poll(void) {
+    if (xarp_check_state(&xarp_timer, XARP_TIMER_PERIOD)) {
+        switch (xarp_entry.state) {
+            case XARP_ENTRY_OK:
+                if (--xarp_entry.ttl == 0) {
+                    xarp_make_request(&xarp_entry.ip_addr);
+                    xarp_entry.state = XARP_ENTRY_PENDING;
+                    xarp_entry.ttl = XARP_CFG_ENTRY_PENDING_TTL;
+                }
+                break;
+            case XARP_ENTRY_PENDING:
+                if (--xarp_entry.ttl == 0) {
+                    if (xarp_entry.retry_cnt-- == 0) {
+                        xarp_entry.state = XARP_ENTRY_FREE;
+                    } else {
+                        xarp_make_request(&xarp_entry.ip_addr);
+                        xarp_entry.state = XARP_ENTRY_PENDING;
+                        xarp_entry.ttl = XARP_CFG_ENTRY_PENDING_TTL;
+                    }
+                }
+                break;
+        }
     }
 }

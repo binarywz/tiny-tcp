@@ -10,6 +10,10 @@
 #define XNET_IPV4_ADDR_SIZE      4    // IP地址长度
 #define XNET_MAC_ADDR_SIZE       6    // MAC地址长度
 
+#define XARP_CFG_ENTRY_OK_TTL         5    // ARP注册表过期时间
+#define XARP_CFG_ENTRY_PENDING_TTL    5    // ARP查询超时时间
+#define XARP_CFG_MAX_RETRIES          3    // ARP查询重试次数
+
 /**
  * 禁用编译器字节填充
  */
@@ -82,8 +86,10 @@ typedef union _xip_addr_t {
     uint32_t addr;
 } xip_addr_t;
 
-#define XARP_ENTRY_FREE 0
-#define XARP_ENTRY_OK 0
+#define XARP_ENTRY_FREE     0
+#define XARP_ENTRY_OK       1
+#define XARP_ENTRY_PENDING  2
+#define XARP_TIMER_PERIOD   1
 
 /**
  * arp结构体
@@ -96,9 +102,13 @@ typedef struct _xarp_entry_t {
     uint8_t retry_cnt;
 } xarp_entry_t;
 
+typedef uint32_t xnet_time_t;
+const xnet_time_t xsys_cur_time(void);
+
 void xarp_init(void);
 int xarp_make_request(const xip_addr_t* ip_addr);
 void xarp_in(xnet_packet_t* packet);
+void xarp_poll(void);
 
 xnet_err_t xnet_driver_open(uint8_t* mac_addr);
 xnet_err_t xnet_driver_send(xnet_packet_t* packet);
