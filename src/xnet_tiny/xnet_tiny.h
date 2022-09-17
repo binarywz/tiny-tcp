@@ -105,6 +105,39 @@ typedef struct _xarp_entry_t {
 typedef uint32_t xnet_time_t;
 const xnet_time_t xsys_cur_time(void);
 
+#define XNET_VERSION_IPV4   4
+
+/**
+ * 禁用编译器字节填充
+ */
+#pragma pack(1)
+/**
+ * IP协议包
+ */
+typedef struct _xip_packet_t {
+    uint8_t head_len : 4;   // 首部长,冒号后面为位域,占用4字节,同时单位为4字节,即真实长度=head_len*4
+    uint8_t version : 4;
+    uint8_t service_type;
+    uint16_t total_len;
+    uint16_t id;
+    uint16_t flags_fragment;
+    uint8_t ttl;
+    uint8_t protocol;
+    uint16_t head_checksum;
+    uint8_t src_ip[XNET_IPV4_ADDR_SIZE];
+    uint8_t dst_ip[XNET_IPV4_ADDR_SIZE];
+} xip_packet_t;
+#pragma pack(0)
+
+/**
+ * IP协议相关
+ */
+void xip_init(void);
+void xip_in(xnet_packet_t* packet);
+
+/**
+ * ARP协议相关函数
+ */
 void xarp_init(void);
 int xarp_make_request(const xip_addr_t* ip_addr);
 void xarp_in(xnet_packet_t* packet);

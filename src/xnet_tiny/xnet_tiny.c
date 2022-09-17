@@ -93,6 +93,8 @@ static void eth_in(xnet_packet_t* packet) {
             xarp_in(packet);
             break;
         case XETH_TYPE_IP:
+            remove_header(packet, sizeof(xeth_head_t));
+            xip_in(packet);
             break;
     }
 }
@@ -113,6 +115,7 @@ static void eth_poll(void) {
 void xnet_init(void) {
     eth_init();
     xarp_init();
+    xip_init();
 }
 
 /**
@@ -250,5 +253,67 @@ void xarp_poll(void) {
                 }
                 break;
         }
+    }
+}
+
+/**
+ * 校验和计算
+ * @param buf 校验数据区的起始地址
+ * @param len 数据区的长度，以字节为单位
+ * @param pre_sum 累加的之前的值，用于多次调用checksum对不同的的数据区计算出一个校验和
+ * @param complement 是否对累加和的结果进行取反
+ * @return 校验和结果
+ */
+static uint16_t checksum16(uint16_t* buf, uint16_t len, uint16_t pre_sum, int complement) {
+    uint32_t checksum = pre_sum;
+    uint16_t high;
+
+    while (len > 1) {
+        checksum += *buf++;
+        len -= 2;
+    }
+    if (len > 0) {
+        checksum += *(uint8_t *)buf;
+    }
+
+    // 注意，这里要不断累加。不然结果在某些情况下计算不正确
+    while ((high = checksum >> 16) != 0) {
+        checksum = high + (checksum & 0xffff);
+    }
+    return complement ? (uint16_t)~checksum : (uint16_t)checksum;
+}
+
+/**
+ * IP协议初始化
+ */
+void xip_init(void) {
+
+}
+
+/**
+ * IP协议输入处理
+ * @param packet
+ */
+void xip_in(xnet_packet_t* packet) {
+    xip_packet_t* xip_packet = (xip_packet_t*) packet->data;
+    if (xip_packet->version != XNET_VERSION_IPV4) {
+        return;
+    }
+    uint16_t head_size = xip_packet->head_len * 4;
+    uint16_t total_size = swap_order16(xip_packet->total_len);
+    if (head_size < sizeof(xip_packet) || total_size < head_size) {
+        return;
+    }
+    uint16_t pre_checksum = xip_packet->head_checksum;
+    xip_packet->head_checksum = 0;
+    if (pre_checksum != checksum16((uint16_t *) xip_packet, head_size, 0, 1)) {
+        return;
+    }
+    if (!xip_addr_equal_buf(&netif_ip, xip_packet->dst_ip)) {
+        return;
+    }
+    switch (xip_packet->protocol) {
+        default:
+            break;
     }
 }
