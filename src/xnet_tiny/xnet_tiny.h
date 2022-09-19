@@ -48,19 +48,23 @@ typedef struct _xarp_packet_t {
 #pragma pack(0)
 
 /**
- * 以太网协议类型枚举
+ * 协议类型枚举
  */
-typedef enum _xeth_type_t {
-    XETH_TYPE_ARP = 0x0806,
-    XETH_TYPE_IP = 0x0800,
-} xeth_type_t;
+typedef enum _xnet_protocol_t {
+    XNET_PROTOCOL_ARP = 0x0806,     // ARP协议
+    XNET_PROTOCOL_IP = 0x0800,      // IP协议
+    XNET_PROTOCOL_ICMP = 1,         // ICMP协议
+    XNET_PROTOCOL_UDP = 17,         // UDP协议
+    XNET_PROTOCOL_TCP = 6,          // UDP协议
+} xnet_protocol_t;
 
 /**
  * 错误码
  */
 typedef enum _xnet_err_t {
     XNET_ERR_OK = 0,
-    XNET_ERR_IO = -1
+    XNET_ERR_IO = -1,
+    XNET_ERR_NONE = -2,
 } xnet_err_t;
 
 /**
@@ -115,25 +119,27 @@ const xnet_time_t xsys_cur_time(void);
  * IP协议包
  */
 typedef struct _xip_packet_t {
-    uint8_t head_len : 4;   // 首部长,冒号后面为位域,占用4字节,同时单位为4字节,即真实长度=head_len*4
-    uint8_t version : 4;
-    uint8_t service_type;
-    uint16_t total_len;
-    uint16_t id;
-    uint16_t flags_fragment;
-    uint8_t ttl;
-    uint8_t protocol;
-    uint16_t head_checksum;
-    uint8_t src_ip[XNET_IPV4_ADDR_SIZE];
-    uint8_t dst_ip[XNET_IPV4_ADDR_SIZE];
+    uint8_t head_len : 4;                   // 首部长,冒号后面为位域,占用4字节,同时单位为4字节,即真实长度=head_len*4
+    uint8_t version : 4;                    // 版本号
+    uint8_t service_type;                   // 服务类型
+    uint16_t total_len;                     // 总长度
+    uint16_t id;                            // 包ID
+    uint16_t flags_fragment;                // 标志位
+    uint8_t ttl;                            // 生存时间
+    uint8_t protocol;                       // 上层协议类型
+    uint16_t head_checksum;                 // 校验和
+    uint8_t src_ip[XNET_IPV4_ADDR_SIZE];    // 源ip地址
+    uint8_t dst_ip[XNET_IPV4_ADDR_SIZE];    // 目标ip地址
 } xip_packet_t;
 #pragma pack(0)
 
 /**
  * IP协议相关
  */
+#define XNET_IP_DEFAULT_TTL 64
 void xip_init(void);
 void xip_in(xnet_packet_t* packet);
+xnet_err_t xip_out(xnet_protocol_t protocol, xip_addr_t* dst_ip, xnet_packet_t* packet);
 
 /**
  * ARP协议相关函数
@@ -142,6 +148,7 @@ void xarp_init(void);
 int xarp_make_request(const xip_addr_t* ip_addr);
 void xarp_in(xnet_packet_t* packet);
 void xarp_poll(void);
+xnet_err_t xarp_resolve(const xip_addr_t* xip_addr, uint8_t* mac_addr);
 
 xnet_err_t xnet_driver_open(uint8_t* mac_addr);
 xnet_err_t xnet_driver_send(xnet_packet_t* packet);

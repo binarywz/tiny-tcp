@@ -3,6 +3,7 @@
 #define min(a, b) ((a) > (b) ? (b) : (a))
 #define swap_order16(v) (((v) & 0xFF) << 8 | ((v) >> 8) & 0xFF)
 #define xip_addr_equal_buf(addr, buf) (memcmp((addr)->array, (buf), XNET_IPV4_ADDR_SIZE) == 0)
+#define xip_addr_equal(addr1, addr2) ((addr1)->addr == (addr2)->addr)
 
 static const xip_addr_t netif_ip = XNET_CFG_NETIF_IP;
 static const uint8_t eth_broadcast[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -69,7 +70,7 @@ static xnet_err_t eth_init(void) {
  * @param packet
  * @return
  */
-static xnet_err_t eth_out(xeth_type_t type, const uint8_t* mac_addr, xnet_packet_t* packet) {
+static xnet_err_t eth_out_mac(xnet_protocol_t type, const uint8_t* mac_addr, xnet_packet_t* packet) {
     xeth_head_t* eth_head;
     add_header(packet, sizeof(xeth_head_t));
     eth_head = (xeth_head_t*) packet->data;
@@ -80,19 +81,34 @@ static xnet_err_t eth_out(xeth_type_t type, const uint8_t* mac_addr, xnet_packet
 }
 
 /**
+ * 以太网给指定IP地址发送数据
+ * @param dst_ip
+ * @param packet
+ * @return
+ */
+static xnet_err_t eth_out_ip(xip_addr_t* dst_ip, xnet_packet_t* packet) {
+    xnet_err_t err;
+    uint8_t* mac_addr;
+    if ((err = xarp_resolve(dst_ip, mac_addr)) == XNET_ERR_OK) {
+        return eth_out_mac(XNET_PROTOCOL_IP, mac_addr, packet);
+    }
+    return err;
+}
+
+/**
  * 以太网接收数据
  * @param packet
  */
 static void eth_in(xnet_packet_t* packet) {
     xeth_head_t* eth_head;
     if (packet->size <= sizeof(xeth_head_t)) return;
-    eth_head = packet->data;
+    eth_head = (xeth_head_t*) packet->data;
     switch (swap_order16(eth_head->type)) {
-        case XETH_TYPE_ARP:
+        case XNET_PROTOCOL_ARP:
             remove_header(packet, sizeof(xeth_head_t));
             xarp_in(packet);
             break;
-        case XETH_TYPE_IP:
+        case XNET_PROTOCOL_IP:
             remove_header(packet, sizeof(xeth_head_t));
             xip_in(packet);
             break;
@@ -156,7 +172,7 @@ int xarp_make_request(const xip_addr_t* ip_addr) {
     xarp_packet_t* arp_packet = (xarp_packet_t*)packet->data;
 
     arp_packet->hw_type = swap_order16(XARP_HW_ETH);
-    arp_packet->pt_type = swap_order16(XETH_TYPE_IP);
+    arp_packet->pt_type = swap_order16(XNET_PROTOCOL_IP);
     arp_packet->hw_size = XNET_MAC_ADDR_SIZE;
     arp_packet->pt_size = XNET_IPV4_ADDR_SIZE;
     arp_packet->opcode = swap_order16(XARP_REQUEST);
@@ -164,7 +180,22 @@ int xarp_make_request(const xip_addr_t* ip_addr) {
     memcpy(arp_packet->sender_ip, netif_ip.array, XNET_IPV4_ADDR_SIZE);
     memset(arp_packet->target_mac, 0, XNET_MAC_ADDR_SIZE);
     memcpy(arp_packet->target_ip, ip_addr->array, XNET_IPV4_ADDR_SIZE);
-    return eth_out(XETH_TYPE_ARP, eth_broadcast, packet);
+    return eth_out_mac(XNET_PROTOCOL_ARP, eth_broadcast, packet);
+}
+
+/**
+ * 解析IP地址对应的MAC地址
+ * @param xip_addr
+ * @param mac_addr
+ * @return
+ */
+xnet_err_t xarp_resolve(const xip_addr_t* xip_addr, uint8_t* mac_addr) {
+    if (xarp_entry.state == XARP_ENTRY_OK && xip_addr_equal(xip_addr, &xarp_entry.ip_addr)) {
+        mac_addr = xarp_entry.mac_addr;
+        return XNET_ERR_OK;
+    }
+    xarp_make_request(xip_addr);
+    return XNET_ERR_NONE;
 }
 
 /**
@@ -177,7 +208,7 @@ xnet_err_t xarp_make_response(xarp_packet_t* xarp_packet) {
     xarp_packet_t* response_packet = (xarp_packet_t*)packet->data;
 
     response_packet->hw_type = swap_order16(XARP_HW_ETH);
-    response_packet->pt_type = swap_order16(XETH_TYPE_IP);
+    response_packet->pt_type = swap_order16(XNET_PROTOCOL_IP);
     response_packet->hw_size = XNET_MAC_ADDR_SIZE;
     response_packet->pt_size = XNET_IPV4_ADDR_SIZE;
     response_packet->opcode = swap_order16(XARP_REPLY);
@@ -185,7 +216,7 @@ xnet_err_t xarp_make_response(xarp_packet_t* xarp_packet) {
     memcpy(response_packet->sender_ip, netif_ip.array, XNET_IPV4_ADDR_SIZE);
     memcpy(response_packet->target_mac, xarp_packet->sender_mac, XNET_MAC_ADDR_SIZE);
     memcpy(response_packet->target_ip, xarp_packet->sender_ip, XNET_IPV4_ADDR_SIZE);
-    return eth_out(XETH_TYPE_ARP, xarp_packet->sender_mac, packet);
+    return eth_out_mac(XNET_PROTOCOL_ARP, xarp_packet->sender_mac, packet);
 }
 
 /**
@@ -201,6 +232,10 @@ static void update_arp_entry(uint8_t* src_ip, uint8_t* src_mac) {
     xarp_entry.retry_cnt = XARP_CFG_MAX_RETRIES;
 }
 
+/**
+ * ARP协议输入
+ * @param packet
+ */
 void xarp_in(xnet_packet_t *packet) {
     if (packet->size < sizeof(xarp_packet_t)) {
         return;
@@ -209,7 +244,7 @@ void xarp_in(xnet_packet_t *packet) {
     uint16_t opcode = swap_order16(xarp_packet->opcode);
     if (swap_order16(xarp_packet->hw_type) != XARP_HW_ETH ||
         xarp_packet->hw_size != XNET_MAC_ADDR_SIZE ||
-        swap_order16(xarp_packet->pt_type) != XETH_TYPE_IP ||
+        swap_order16(xarp_packet->pt_type) != XNET_PROTOCOL_IP ||
         xarp_packet->pt_size != XNET_IPV4_ADDR_SIZE ||
             (opcode != XARP_REQUEST && opcode != XARP_REPLY)) {
         return;
@@ -316,4 +351,30 @@ void xip_in(xnet_packet_t* packet) {
         default:
             break;
     }
+}
+
+/**
+ * IP协议输出处理
+ * @param protocol
+ * @param dst_ip
+ * @param packet
+ * @return
+ */
+xnet_err_t xip_out(xnet_protocol_t protocol, xip_addr_t* dst_ip, xnet_packet_t* packet) {
+    static uint32_t xip_packet_id = 0;
+    add_header(packet, sizeof(xip_packet_t));
+    xip_packet_t* xip_packet = (xip_packet_t*) packet->data;
+    xip_packet->version = XNET_VERSION_IPV4;
+    xip_packet->head_len = sizeof(xip_packet) / 4;
+    xip_packet->service_type = 0;
+    xip_packet->total_len = swap_order16(packet->size);
+    xip_packet->id = swap_order16(xip_packet_id);
+    xip_packet_id++;
+    xip_packet->flags_fragment = 0;
+    xip_packet->ttl = XNET_IP_DEFAULT_TTL;
+    memcpy(xip_packet->src_ip, &netif_ip, XNET_IPV4_ADDR_SIZE);
+    memcpy(xip_packet->dst_ip, dst_ip, XNET_IPV4_ADDR_SIZE);
+    xip_packet->head_checksum = 0;
+    xip_packet->head_checksum = checksum16((uint16_t *) xip_packet, sizeof(xip_packet_t), 0, 1);
+    return eth_out_ip(dst_ip, packet);
 }
