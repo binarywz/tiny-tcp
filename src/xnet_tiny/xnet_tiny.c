@@ -4,6 +4,7 @@
 #define swap_order16(v) (((v) & 0xFF) << 8 | ((v) >> 8) & 0xFF)
 #define xip_addr_equal_buf(addr, buf) (memcmp((addr)->array, (buf), XNET_IPV4_ADDR_SIZE) == 0)
 #define xip_addr_equal(addr1, addr2) ((addr1)->addr == (addr2)->addr)
+#define xip_addr_from_buf(dst, buf)          ((dst)->addr = *(uint32_t *)(buf))
 
 static const xip_addr_t netif_ip = XNET_CFG_NETIF_IP;
 static const uint8_t eth_broadcast[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -89,7 +90,7 @@ static xnet_err_t eth_out_mac(xnet_protocol_t type, const uint8_t* mac_addr, xne
 static xnet_err_t eth_out_ip(xip_addr_t* dst_ip, xnet_packet_t* packet) {
     xnet_err_t err;
     uint8_t* mac_addr;
-    if ((err = xarp_resolve(dst_ip, mac_addr)) == XNET_ERR_OK) {
+    if ((err = xarp_resolve(dst_ip, &mac_addr)) == XNET_ERR_OK) {
         return eth_out_mac(XNET_PROTOCOL_IP, mac_addr, packet);
     }
     return err;
@@ -132,6 +133,7 @@ void xnet_init(void) {
     eth_init();
     xarp_init();
     xip_init();
+    xicmp_init();
 }
 
 /**
@@ -186,12 +188,12 @@ int xarp_make_request(const xip_addr_t* ip_addr) {
 /**
  * 解析IP地址对应的MAC地址
  * @param xip_addr
- * @param mac_addr
+ * @param mac_addr TODO 视频中mac_addr使用的是二级指针，需要后续调试确认
  * @return
  */
-xnet_err_t xarp_resolve(const xip_addr_t* xip_addr, uint8_t* mac_addr) {
+xnet_err_t xarp_resolve(const xip_addr_t* xip_addr, uint8_t** mac_addr) {
     if (xarp_entry.state == XARP_ENTRY_OK && xip_addr_equal(xip_addr, &xarp_entry.ip_addr)) {
-        mac_addr = xarp_entry.mac_addr;
+        *mac_addr = xarp_entry.mac_addr;
         return XNET_ERR_OK;
     }
     xarp_make_request(xip_addr);
@@ -347,7 +349,14 @@ void xip_in(xnet_packet_t* packet) {
     if (!xip_addr_equal_buf(&netif_ip, xip_packet->dst_ip)) {
         return;
     }
+
+    xip_addr_t src_ip;
+    xip_addr_from_buf(&src_ip, xip_packet->src_ip);
     switch (xip_packet->protocol) {
+        case XNET_PROTOCOL_ICMP:
+            remove_header(packet, head_size);
+            xicmp_in(&src_ip, packet);
+            break;
         default:
             break;
     }
@@ -365,16 +374,57 @@ xnet_err_t xip_out(xnet_protocol_t protocol, xip_addr_t* dst_ip, xnet_packet_t* 
     add_header(packet, sizeof(xip_packet_t));
     xip_packet_t* xip_packet = (xip_packet_t*) packet->data;
     xip_packet->version = XNET_VERSION_IPV4;
-    xip_packet->head_len = sizeof(xip_packet) / 4;
+    xip_packet->head_len = sizeof(xip_packet_t) / 4;
     xip_packet->service_type = 0;
     xip_packet->total_len = swap_order16(packet->size);
     xip_packet->id = swap_order16(xip_packet_id);
     xip_packet_id++;
     xip_packet->flags_fragment = 0;
     xip_packet->ttl = XNET_IP_DEFAULT_TTL;
-    memcpy(xip_packet->src_ip, &netif_ip, XNET_IPV4_ADDR_SIZE);
-    memcpy(xip_packet->dst_ip, dst_ip, XNET_IPV4_ADDR_SIZE);
+    xip_packet->protocol = protocol;
+    memcpy(xip_packet->src_ip, &netif_ip.array, XNET_IPV4_ADDR_SIZE);
+    memcpy(xip_packet->dst_ip, dst_ip->array, XNET_IPV4_ADDR_SIZE);
     xip_packet->head_checksum = 0;
     xip_packet->head_checksum = checksum16((uint16_t *) xip_packet, sizeof(xip_packet_t), 0, 1);
     return eth_out_ip(dst_ip, packet);
+}
+
+/**
+ * ICMP协议初始化
+ */
+void xicmp_init() {
+
+}
+
+/**
+ * 回复ICMP请求
+ * @param xicmp_packet
+ * @param src_ip
+ * @param packet
+ * @return
+ */
+static xnet_err_t reply_icmp_request(xicmp_packet_t* xicmp_packet, xip_addr_t* src_ip, xnet_packet_t* packet) {
+    xnet_packet_t* tx = xnet_alloc_for_send(packet->size);
+    xicmp_packet_t* xicmp_reply_packet = (xicmp_packet_t*)tx->data;
+    xicmp_reply_packet->type = XICMP_CODE_ECHO_REPLY;
+    xicmp_reply_packet->code = 0;
+    xicmp_reply_packet->id = xicmp_packet->id;
+    xicmp_reply_packet->seq = xicmp_packet->seq;
+    xicmp_reply_packet->checksum = 0;
+    memcpy((uint8_t*) xicmp_reply_packet + sizeof(xicmp_packet_t), (uint8_t*) xicmp_packet + sizeof(xicmp_packet_t),
+           packet->size - sizeof(xicmp_packet_t));
+    xicmp_reply_packet->checksum = checksum16((uint16_t*) xicmp_reply_packet, tx->size, 0, 1);
+    return xip_out(XNET_PROTOCOL_ICMP, src_ip, tx);
+}
+
+/**
+ * ICMP协议输入处理
+ * @param src_ip
+ * @param packet
+ */
+void xicmp_in(xip_addr_t* src_ip, xnet_packet_t *packet) {
+    xicmp_packet_t* xicmp_packet = (xicmp_packet_t*)packet->data;
+    if (packet->size >= sizeof(xicmp_packet_t) && xicmp_packet->type == XICMP_CODE_ECHO_REQUEST) {
+        reply_icmp_request(xicmp_packet, src_ip, packet);
+    }
 }

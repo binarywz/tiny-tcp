@@ -55,7 +55,7 @@ typedef enum _xnet_protocol_t {
     XNET_PROTOCOL_IP = 0x0800,      // IP协议
     XNET_PROTOCOL_ICMP = 1,         // ICMP协议
     XNET_PROTOCOL_UDP = 17,         // UDP协议
-    XNET_PROTOCOL_TCP = 6,          // UDP协议
+    XNET_PROTOCOL_TCP = 6,          // TCP协议
 } xnet_protocol_t;
 
 /**
@@ -148,7 +148,29 @@ void xarp_init(void);
 int xarp_make_request(const xip_addr_t* ip_addr);
 void xarp_in(xnet_packet_t* packet);
 void xarp_poll(void);
-xnet_err_t xarp_resolve(const xip_addr_t* xip_addr, uint8_t* mac_addr);
+xnet_err_t xarp_resolve(const xip_addr_t* xip_addr, uint8_t** mac_addr);
+
+/**
+ * 禁用编译器字节填充
+ */
+#pragma pack(1)
+/**
+ * ICMP协议包
+ */
+typedef struct _xicmp_packet_t {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint16_t id;
+    uint16_t seq;
+} xicmp_packet_t;
+#pragma pack(0)
+
+#define XICMP_CODE_ECHO_REQUEST 8
+#define XICMP_CODE_ECHO_REPLY   0
+
+void xicmp_init();
+void xicmp_in(xip_addr_t* src_ip, xnet_packet_t* packet);
 
 xnet_err_t xnet_driver_open(uint8_t* mac_addr);
 xnet_err_t xnet_driver_send(xnet_packet_t* packet);
